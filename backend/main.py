@@ -1,4 +1,6 @@
-from fastapi import FastAPI, UploadFile, File, Depends
+from fastapi import FastAPI, UploadFile, File, Depends, Request
+from fastapi.responses import HTMLResponse
+from fastapi.middleware.cors import CORSMiddleware
 from .config import settings
 from .models.user import User
 import logging
@@ -30,6 +32,15 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="ASHA AI Chatbot", lifespan=lifespan)
 
+# Fix CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Allow all origins for now (tighten later)
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 class JobQuery(BaseModel):
     query: str
 
@@ -40,10 +51,11 @@ async def get_db_connection():
     async with get_db() as conn:
         yield conn
 
-@app.get("/")
-async def root():
+@app.get("/", response_class=HTMLResponse)
+async def root(request: Request):
     logger.info("Root route accessed")
-    return {"message": "Welcome to ASHA AI Chatbot! Use /health, /job-search, or /upload-resume to proceed."}
+    with open("templates/index.html", "r") as f:
+        return HTMLResponse(content=f.read())
 
 @app.get("/health")
 async def health_check():
