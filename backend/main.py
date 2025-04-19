@@ -7,7 +7,7 @@ from pydantic import BaseModel
 import json
 import re
 from .utils.resume_parser import parse_and_chunk_resume
-from .database.init_db import init_db, get_db  # Verify this import
+from .database.init_db import init_db, get_db
 from contextlib import asynccontextmanager
 import asyncio
 
@@ -15,7 +15,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(
                     handlers=[logging.FileHandler("asha_chatbot.log"), logging.StreamHandler()])
 logger = logging.getLogger(__name__)
 
-# Debug: Check if init_db is a coroutine
+# Debug: Check if init_db is a coroutine function
 if not asyncio.iscoroutinefunction(init_db):
     logger.error("init_db is not a coroutine function")
     raise ImportError("init_db from database.init_db is not a valid async function")
@@ -24,7 +24,7 @@ if not asyncio.iscoroutinefunction(init_db):
 async def lifespan(app: FastAPI):
     # Startup event: Initialize database
     logger.info("Attempting to initialize database")
-    await init_db()  # Await the async function directly
+    await init_db()
     logger.info("Database initialized on startup")
     yield
     # Shutdown event: Cleanup (optional for now)
@@ -54,13 +54,14 @@ async def health_check():
 async def job_search(job_query: JobQuery, db=Depends(get_db_connection)):
     try:
         query = job_query.query.lower().strip()
-        # Fetch user data from SQLite (placeholder)
+        # Fetch user data from SQLite as a potential filter
         cursor = await db.execute("SELECT skills, preferences FROM users WHERE user_id = 'temp_user'")
         user_data = await cursor.fetchone()
         user_data = {"skills": user_data[0], "preferences": user_data[1]} if user_data else {"skills": None, "preferences": None}
         parsed_query = {"role": "any", "location": "global", "experience": "any"}
 
-        if not user_data["skills"] and not user_data["preferences"]:
+        # Use user query as primary input
+        if query:
             gemini_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={settings.GEMINI_API_KEY}"
             gemini_response = requests.post(
                 gemini_url,
@@ -79,7 +80,13 @@ async def job_search(job_query: JobQuery, db=Depends(get_db_connection)):
                 parsed_query = {"role": "internship", "location": "global", "experience": "entry level"}
             logger.info(f"LLM parsed query: {parsed_query}")
         else:
-            parsed_query = {"role": user_data["skills"] or "any", "location": user_data["preferences"] or "any", "experience": "any"}
+            # Fallback to generic search if no query, ignoring SQLite unless explicitly used
+            parsed_query = {"role": "any job", "location": "global", "experience": "any"}
+
+        # Optional: Use SQLite data to refine if available and desired (e.g., via a future flag)
+        if user_data["skills"] and user_data["preferences"]:
+            parsed_query["role"] = f"{user_data['skills']} {parsed_query['role']}"
+            parsed_query["location"] = user_data["preferences"] or parsed_query["location"]
 
         jsearch_url = "https://jsearch.p.rapidapi.com/search"
         headers = {
