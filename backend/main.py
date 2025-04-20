@@ -40,8 +40,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-class JobQuery(BaseModel):
-    query: str
+class ChatRequest(BaseModel):
+    message: str
 
 class GuidanceRequest(BaseModel):
     user_id: str
@@ -61,15 +61,17 @@ async def health_check():
     logger.info("health check passed")
     return {"status": "healthy"}
 
-@app.post("/job-search")
-async def job_search(job_query: JobQuery, db=Depends(get_db_connection)):
-    try:
-        query = job_query.query.lower().strip()
-        cursor = await db.execute("SELECT skills, preferences FROM users WHERE user_id = 'temp_user'")
-        user_data = await cursor.fetchone()
-        user_data = {"skills": user_data[0], "preferences": user_data[1]} if user_data else {"skills": None, "preferences": None}
+@app.post("/chat")
+async def chat(request: ChatRequest, db=Depends(get_db_connection)):
+    message = request.message
+    cursor = await db.execute("SELECT skills, preferences FROM users WHERE user_id = 'temp_user'")
+    user_data = await cursor.fetchone()
+    user_data = {"skills": user_data[0], "preferences": user_data[1]} if user_data else {"skills": None, "preferences": None}
 
-        # Convert natural language to JSearch query using Gemini
+    # Check for bolded commands
+    if "**search jobs**" in message:
+        query = message.replace("**search jobs**", "").strip()
+        # Convert natural language to JSearch query
         gemini_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={settings.GEMINI_API_KEY}"
         gemini_prompt = f"""You are an expert at converting natural language requests into precise JSearch API queries. Your task is to analyze the given natural language input and generate a valid JSearch API query as a URL query string that accurately reflects the user's intent, based on the provided JSearch API query parameters. Follow these steps:
 
@@ -109,7 +111,6 @@ Now, convert the following natural language request into a JSearch API query: "{
         except IndexError:
             jsearch_query = "query=internships"
 
-        # Fetch jobs with the converted query
         jsearch_url = "https://jsearch.p.rapidapi.com/search"
         headers = {"X-RapidAPI-Key": settings.JSEARCH_API_KEY, "X-RapidAPI-Host": "jsearch.p.rapidapi.com"}
         params = {k: v for k, v in [param.split('=') for param in jsearch_query.split('&')] if v}
@@ -118,16 +119,31 @@ Now, convert the following natural language request into a JSearch API query: "{
         jsearch_response.raise_for_status()
         results = jsearch_response.json().get("data", [])
         logger.info(f"JSearch returned {len(results)} results for query: {query}")
-        return {"results": results[:10]}
-    except requests.RequestException as e:
-        logger.error(f"API error: {e}")
-        return {"error": "API failed, check logs"}
-    except json.JSONDecodeError as e:
-        logger.error(f"JSON parse error: {e}")
-        return {"error": "Failed to parse LLM response"}
-    except Exception as e:
-        logger.error(f"Unexpected error: {e}")
-        return {"error": "Something went wrong, try again"}
+        return {"jobs": results[:10]}
+
+    elif "**get guidance**" in message:
+        query = message.replace("**get guidance**", "").strip()
+        pc = pinecone.Pinecone(api_key=settings.PINECONE_API_KEY)
+        index = pc.Index("asha-resume-chunks")
+        result = index.query(vector=[0] * 1024, top_k=3, include_metadata=True)
+        resume_text = " ".join([match.metadata["text"].replace("\n", " ") for match in result.matches]) if result.matches else ""
+        gemini_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={settings.GEMINI_API_KEY}"
+        gemini_prompt = f"""You are a highly knowledgeable and empathetic career coach specializing in providing tailored career advice to women. Your goal is to empower women by offering practical, actionable, and supportive guidance to help them navigate their professional journeys, overcome challenges, and achieve their career goals. Your advice should be inclusive, considerate of diverse backgrounds, and address common barriers women may face in the workplace, such as gender bias, work-life balance, imposter syndrome, or leadership challenges. Provide clear, concise, and encouraging responses that inspire confidence and foster professional growth. When relevant, incorporate strategies for networking, skill-building, advocating for oneself, and pursuing leadership roles. If the user provides specific details (e.g., industry, career stage, or challenges), tailor your advice to their context. Avoid assumptions, and ensure your tone is warm, professional, and motivating. If additional information is needed to provide the best advice, politely ask clarifying questions.
+
+Resume summary (if available): {resume_text}
+User input: {query}"""
+        response = requests.post(gemini_url, headers={"Content-Type": "application/json"}, json={"contents": [{"parts": [{"text": gemini_prompt}]}]})
+        response.raise_for_status()
+        guidance = response.json().get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "I’d love to help! Please provide more details about your career stage, industry, or challenges you're facing.")
+        return {"guidance": guidance}
+
+    else:
+        # Fallback to LLM for unknown intents
+        gemini_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={settings.GEMINI_API_KEY}"
+        response = requests.post(gemini_url, headers={"Content-Type": "application/json"}, json={"contents": [{"parts": [{"text": f"Interpret the intent of this message and respond appropriately: {message}"}]}]})
+        response.raise_for_status()
+        guidance = response.json().get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "Sorry, I didn’t understand that. Try **search jobs** or **get guidance**.")
+        return {"guidance": guidance}
 
 @app.post("/upload-resume")
 async def upload_resume(file: UploadFile = File(...), db=Depends(get_db_connection)):
@@ -141,20 +157,6 @@ async def upload_resume(file: UploadFile = File(...), db=Depends(get_db_connecti
     except Exception as e:
         logger.error(f"Resume processing failed: {e}")
         return {"error": "Failed to process resume, check logs"}
-
-@app.post("/personalized-guidance")
-async def personalized_guidance(request: GuidanceRequest):
-    pc = pinecone.Pinecone(api_key=settings.PINECONE_API_KEY)
-    index = pc.Index("asha-resume-chunks")
-    result = index.query(vector=[0] * 1024, top_k=3, include_metadata=True)
-    if not result.matches:
-        return {"message": "No resume data found"}
-    resume_text = " ".join([match.metadata["text"].replace("\n", " ") for match in result.matches])
-    gemini_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={settings.GEMINI_API_KEY}"
-    response = requests.post(gemini_url, headers={"Content-Type": "application/json"}, json={"contents": [{"parts": [{"text": f"Provide career guidance based on this resume summary: {resume_text}. Suggest specific skills to improve and roles to target."}]}]})
-    response.raise_for_status()
-    guidance = response.json().get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "Enhance your skills based on your experience.")
-    return {"guidance": guidance}
 
 if __name__ == "__main__":
     import uvicorn

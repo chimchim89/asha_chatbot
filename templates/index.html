@@ -5,105 +5,85 @@
     <title>ASHA AI Chatbot</title>
     <style>
         body { font-family: Arial, sans-serif; max-width: 800px; margin: 20px auto; background-color: #f5f5f5; }
-        #upload-section { margin-bottom: 20px; }
-        #upload-form { display: flex; gap: 10px; align-items: center; }
-        #upload-form input[type="file"] { padding: 5px; border: 1px solid #ccc; border-radius: 4px; }
-        #upload-form button, #options button { padding: 8px 16px; background-color: #4a90e2; color: white; border: none; border-radius: 4px; cursor: pointer; }
-        #upload-form button:hover, #options button:hover { background-color: #357ab7; }
-        #upload-status { margin-top: 10px; color: #666; }
-        #job-query-section { margin-bottom: 20px; }
-        #job-query { padding: 5px; width: 200px; border: 1px solid #ccc; border-radius: 4px; }
-        #options { display: flex; gap: 10px; margin-bottom: 20px; }
-        #chat-box { height: 300px; border: 2px solid #4a90e2; padding: 15px; overflow-y: scroll; background: white; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
-        ul { list-style-type: none; padding: 0; }
-        li { margin: 5px 0; }
-        a { color: #4a90e2; text-decoration: none; }
-        a:hover { text-decoration: underline; }
+        #chat-container { height: 400px; border: 2px solid #4a90e2; padding: 15px; overflow-y: scroll; background: white; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); margin-bottom: 20px; }
+        .message { margin: 10px 0; padding: 8px; border-radius: 4px; max-width: 70%; }
+        .user-message { background-color: #4a90e2; color: white; margin-left: auto; }
+        .bot-message { background-color: #e0e0e0; color: black; }
+        #input-section { display: flex; gap: 10px; flex-wrap: wrap; }
+        #user-input { padding: 5px; width: 70%; border: 1px solid #ccc; border-radius: 4px; }
+        #send-btn, .command-btn { padding: 8px 16px; background-color: #4a90e2; color: white; border: none; border-radius: 4px; cursor: pointer; }
+        #send-btn:hover, .command-btn:hover { background-color: #357ab7; }
+        .loading { font-style: italic; color: #666; }
     </style>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 </head>
 <body>
     <h1 style="color: #4a90e2;">ASHA AI Chatbot</h1>
-    <div id="upload-section">
-        <form id="upload-form" enctype="multipart/form-data">
-            <input type="file" id="resume-file" name="file" accept=".pdf">
-            <button type="submit">Upload Resume</button>
-        </form>
-        <div id="upload-status"></div>
+    <div id="chat-container"></div>
+    <div id="input-section">
+        <input type="text" id="user-input" placeholder="Type or use commands below">
+        <button id="send-btn">Send</button>
+        <button class="command-btn" onclick="insertCommand('**search jobs**')">Search Jobs</button>
+        <button class="command-btn" onclick="insertCommand('**get guidance**')">Get Guidance</button>
     </div>
-    <div id="job-query-section">
-        <input type="text" id="job-query" placeholder="Enter job query (e.g., 'tech jobs in Pune')">
-        <button onclick="jobSearch()">Search Jobs</button>
-    </div>
-    <div id="options">
-        <button onclick="personalizedGuidance()">Personalized Guidance</button>
-    </div>
-    <div id="chat-box"></div>
     <script>
-        const form = document.getElementById('upload-form');
-        form.addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const fileInput = document.getElementById('resume-file');
-            const formData = new FormData(form);
-            const status = document.getElementById('upload-status');
-            status.textContent = 'Uploading...';
-            try {
-                const response = await fetch('http://0.0.0.0:8000/upload-resume', {
-                    method: 'POST',
-                    body: formData
-                });
-                const result = await response.json();
-                status.textContent = result.message || 'Upload failed';
-                document.getElementById('chat-box').innerHTML = result.message || 'Upload error';
-            } catch (error) {
-                status.textContent = 'Error uploading resume';
-            }
-        });
+        const chatContainer = document.getElementById('chat-container');
+        const userInput = document.getElementById('user-input');
+        const sendBtn = document.getElementById('send-btn');
 
-        async function jobSearch() {
-            const query = document.getElementById('job-query').value;
-            const status = document.getElementById('upload-status');
-            status.textContent = 'Searching...';
+        function addMessage(text, isUser = false) {
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${isUser ? 'user-message' : 'bot-message'}`;
+            messageDiv.innerHTML = text;
+            chatContainer.appendChild(messageDiv);
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+        }
+
+        function insertCommand(command) {
+            userInput.value = command + (userInput.value ? ` ${userInput.value}` : '');
+            userInput.focus();
+        }
+
+        sendBtn.addEventListener('click', async () => {
+            const message = userInput.value.trim();
+            if (!message) return;
+
+            addMessage(message, true);
+            userInput.value = '';
+            addMessage('<span class="loading">Processing...</span>', false);
+
             try {
-                const response = await fetch('http://0.0.0.0:8000/job-search', {
+                const response = await fetch('http://0.0.0.0:8000/chat', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({query: query || ''})
+                    body: JSON.stringify({message: message})
                 });
                 const result = await response.json();
-                status.textContent = result.results ? 'Found jobs!' : 'No jobs found';
-                if (result.results) {
-                    const jobsList = result.results.map(job => {
+                chatContainer.removeChild(chatContainer.lastChild); // Remove loading
+                if (result.error) {
+                    addMessage(result.error, false);
+                } else if (result.jobs) {
+                    const jobsList = result.jobs.map(job => {
                         const applyLink = job.job_apply_link ? `<a href="${job.job_apply_link}" target="_blank">Apply</a>` : 'No apply link';
                         const location = job.job_city ? `${job.job_city}, ${job.job_country}` : 'Location not specified';
                         const highlight = job.job_highlights?.Benefits?.[0] || job.job_description?.match(/Duration: [\w\s]+/)?.[0] || 'Check details';
-                        return `<li>${job.job_title} at ${job.employer_name} | ${location} | ${highlight} | ${applyLink}</li>`;
-                    }).join('');
-                    document.getElementById('chat-box').innerHTML = `<ul>${jobsList}</ul>`;
+                        return `${job.job_title} at ${job.employer_name} | ${location} | ${highlight} | ${applyLink}`;
+                    }).join('<br>');
+                    addMessage(jobsList, false);
+                } else if (result.guidance) {
+                    addMessage(marked.parse(result.guidance), false);
                 } else {
-                    document.getElementById('chat-box').innerHTML = 'No jobs found.';
+                    addMessage('Sorry, I didn’t understand that.', false);
                 }
             } catch (error) {
-                status.textContent = 'Error searching jobs';
+                chatContainer.removeChild(chatContainer.lastChild); // Remove loading
+                addMessage('Error communicating with the server.', false);
             }
-        }
+        });
 
-        async function personalizedGuidance() {
-            const status = document.getElementById('upload-status');
-            status.textContent = 'Generating guidance...';
-            try {
-                const response = await fetch('http://0.0.0.0:8000/personalized-guidance', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({user_id: 'temp_user'})
-                });
-                const result = await response.json();
-                status.textContent = 'Guidance generated!';
-                document.getElementById('chat-box').innerHTML = marked.parse(result.guidance);
-            } catch (error) {
-                status.textContent = 'Error generating guidance';
-            }
-        }
+        userInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') sendBtn.click();
+        });
     </script>
 </body>
 </html>
