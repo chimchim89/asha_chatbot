@@ -5,19 +5,25 @@
     <title>ASHA AI Chatbot</title>
     <style>
         body { font-family: Arial, sans-serif; max-width: 800px; margin: 20px auto; background-color: #f5f5f5; }
-        #chat-box { height: 300px; border: 2px solid #4a90e2; padding: 15px; overflow-y: scroll; background: white; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
-        #upload-section, #options { margin-top: 20px; }
-        #upload-form { display: flex; gap: 10px; }
+        #upload-section { margin-bottom: 20px; }
+        #upload-form { display: flex; gap: 10px; align-items: center; }
         #upload-form input[type="file"] { padding: 5px; border: 1px solid #ccc; border-radius: 4px; }
         #upload-form button, #options button { padding: 8px 16px; background-color: #4a90e2; color: white; border: none; border-radius: 4px; cursor: pointer; }
         #upload-form button:hover, #options button:hover { background-color: #357ab7; }
         #upload-status { margin-top: 10px; color: #666; }
-        #options { display: flex; gap: 10px; }
+        #job-query-section { margin-bottom: 20px; }
+        #job-query { padding: 5px; width: 200px; border: 1px solid #ccc; border-radius: 4px; }
+        #options { display: flex; gap: 10px; margin-bottom: 20px; }
+        #chat-box { height: 300px; border: 2px solid #4a90e2; padding: 15px; overflow-y: scroll; background: white; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+        ul { list-style-type: none; padding: 0; }
+        li { margin: 5px 0; }
+        a { color: #4a90e2; text-decoration: none; }
+        a:hover { text-decoration: underline; }
     </style>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 </head>
 <body>
     <h1 style="color: #4a90e2;">ASHA AI Chatbot</h1>
-    <div id="chat-box"></div>
     <div id="upload-section">
         <form id="upload-form" enctype="multipart/form-data">
             <input type="file" id="resume-file" name="file" accept=".pdf">
@@ -25,10 +31,14 @@
         </form>
         <div id="upload-status"></div>
     </div>
+    <div id="job-query-section">
+        <input type="text" id="job-query" placeholder="Enter job query (e.g., 'tech jobs in Pune')">
+        <button onclick="jobSearch()">Search Jobs</button>
+    </div>
     <div id="options">
-        <button onclick="jobSearch()">Job Search</button>
         <button onclick="personalizedGuidance()">Personalized Guidance</button>
     </div>
+    <div id="chat-box"></div>
     <script>
         const form = document.getElementById('upload-form');
         form.addEventListener('submit', async (e) => {
@@ -51,17 +61,28 @@
         });
 
         async function jobSearch() {
+            const query = document.getElementById('job-query').value;
             const status = document.getElementById('upload-status');
             status.textContent = 'Searching...';
             try {
                 const response = await fetch('http://0.0.0.0:8000/job-search', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({query: ''})
+                    body: JSON.stringify({query: query || ''})
                 });
                 const result = await response.json();
                 status.textContent = result.results ? 'Found jobs!' : 'No jobs found';
-                document.getElementById('chat-box').innerHTML = JSON.stringify(result.results, null, 2);
+                if (result.results) {
+                    const jobsList = result.results.map(job => {
+                        const applyLink = job.job_apply_link ? `<a href="${job.job_apply_link}" target="_blank">Apply</a>` : 'No apply link';
+                        const location = job.job_city ? `${job.job_city}, ${job.job_country}` : 'Location not specified';
+                        const highlight = job.job_highlights?.Benefits?.[0] || job.job_description?.match(/Duration: [\w\s]+/)?.[0] || 'Check details';
+                        return `<li>${job.job_title} at ${job.employer_name} | ${location} | ${highlight} | ${applyLink}</li>`;
+                    }).join('');
+                    document.getElementById('chat-box').innerHTML = `<ul>${jobsList}</ul>`;
+                } else {
+                    document.getElementById('chat-box').innerHTML = 'No jobs found.';
+                }
             } catch (error) {
                 status.textContent = 'Error searching jobs';
             }
@@ -78,7 +99,7 @@
                 });
                 const result = await response.json();
                 status.textContent = 'Guidance generated!';
-                document.getElementById('chat-box').innerHTML = result.guidance;
+                document.getElementById('chat-box').innerHTML = marked.parse(result.guidance);
             } catch (error) {
                 status.textContent = 'Error generating guidance';
             }

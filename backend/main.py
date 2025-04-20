@@ -32,10 +32,9 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="ASHA AI Chatbot", lifespan=lifespan)
 
-# Fix CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Allow all origins for now (tighten later)
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -69,36 +68,51 @@ async def job_search(job_query: JobQuery, db=Depends(get_db_connection)):
         cursor = await db.execute("SELECT skills, preferences FROM users WHERE user_id = 'temp_user'")
         user_data = await cursor.fetchone()
         user_data = {"skills": user_data[0], "preferences": user_data[1]} if user_data else {"skills": None, "preferences": None}
-        parsed_query = {"role": "any", "location": "global", "experience": "any"}
 
-        if query:
-            gemini_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={settings.GEMINI_API_KEY}"
-            gemini_response = requests.post(
-                gemini_url,
-                headers={"Content-Type": "application/json"},
-                json={"contents": [{"parts": [{"text": f"Extract role, location, experience from: '{query}'. Infer role based on skills mentioned (e.g., 'ml' for machine learning, 'genai' for generative ai). Return as JSON e.g. {{'role': 'internship in machine learning and generative ai', 'location': 'unspecified', 'experience': 'entry level'}}"}]}]}
-            )
-            gemini_response.raise_for_status()
-            data = gemini_response.json()
-            raw_text = data.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "{}")
-            logger.info(f"Raw Gemini response: {raw_text}")
-            clean_text = re.sub(r'^```json\s*|\s*```$', '', raw_text, flags=re.MULTILINE).strip()
-            try:
-                parsed_query.update(json.loads(clean_text) if clean_text else {})
-            except json.JSONDecodeError:
-                logger.error(f"Invalid JSON from Gemini: {clean_text}")
-                parsed_query = {"role": "internship", "location": "global", "experience": "entry level"}
-            logger.info(f"LLM parsed query: {parsed_query}")
-        else:
-            parsed_query = {"role": "any job", "location": "global", "experience": "any"}
+        # Convert natural language to JSearch query using Gemini
+        gemini_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={settings.GEMINI_API_KEY}"
+        gemini_prompt = f"""You are an expert at converting natural language requests into precise JSearch API queries. Your task is to analyze the given natural language input and generate a valid JSearch API query as a URL query string that accurately reflects the user's intent, based on the provided JSearch API query parameters. Follow these steps:
 
-        if user_data["skills"] and user_data["preferences"]:
-            parsed_query["role"] = f"{user_data['skills']} {parsed_query['role']}"
-            parsed_query["location"] = user_data["preferences"] or parsed_query["location"]
+1. Identify the key components of the natural language request, such as job title, location, country, date posted, employment types, work-from-home preference, job requirements, radius, excluded publishers, and fields to include.
+2. Map these components to the appropriate JSearch API query parameters (e.g., `query`, `country`, `date_posted`, `employment_types`, `work_from_home`, `job_requirements`, `radius`, `exclude_job_publishers`, `fields`, `page`, `num_pages`).
+3. Ensure the query adheres to JSearch API conventions, including proper parameter names, value formats, and constraints (e.g., allowed values for `date_posted`, `country`, `employment_types`).
+4. Handle ambiguities by making reasonable assumptions based on common job search patterns, and include a brief comment explaining any assumptions made.
+5. Output the JSearch API query as a URL query string (e.g., `query=developer+jobs+in+chicago&country=us`).
 
+### JSearch API Query Parameters
+- **query** (required): Free-form jobs search query (e.g., "developer jobs in chicago"). Include job title and location when possible.
+- **page** (optional): Page number to return (1-100, default: 1).
+- **num_pages** (optional): Number of pages to return (1-20, default: 1).
+- **country** (optional): ISO 3166-1 alpha-2 country code (e.g., "us", default: "us").
+- **language** (optional): ISO 639 language code (e.g., "en"). Defaults to primary language of the country.
+- **date_posted** (optional): Time frame for job postings ("all", "today", "3days", "week", "month", default: "all").
+- **work_from_home** (optional): Set to `true` for remote jobs (default: `false`).
+- **employment_types** (optional): Comma-separated list of employment types ("FULLTIME", "CONTRACTOR", "PARTTIME", "INTERN").
+- **job_requirements** (optional): Comma-separated list of requirements ("under_3_years_experience", "more_than_3_years_experience", "no_experience", "no_degree").
+- **radius** (optional): Distance from location in kilometers.
+- **exclude_job_publishers** (optional): Comma-separated list of publishers to exclude (e.g., "BeeBe,Dice").
+- **fields** (optional): Comma-separated list of job fields to include (e.g., "employer_name,job_title").
+
+Now, convert the following natural language request into a JSearch API query: "{query}" """
+        gemini_response = requests.post(
+            gemini_url,
+            headers={"Content-Type": "application/json"},
+            json={"contents": [{"parts": [{"text": gemini_prompt.format(query=query)}]}]}
+        )
+        gemini_response.raise_for_status()
+        data = gemini_response.json()
+        raw_text = data.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "")
+        logger.info(f"Raw Gemini response for query conversion: {raw_text}")
+        clean_text = re.sub(r'^```.*\n|\n.*```$', '', raw_text, flags=re.MULTILINE).strip()
+        try:
+            jsearch_query = clean_text.split("\n")[0] if clean_text else "query=internships"
+        except IndexError:
+            jsearch_query = "query=internships"
+
+        # Fetch jobs with the converted query
         jsearch_url = "https://jsearch.p.rapidapi.com/search"
         headers = {"X-RapidAPI-Key": settings.JSEARCH_API_KEY, "X-RapidAPI-Host": "jsearch.p.rapidapi.com"}
-        params = {"query": f"{parsed_query.get('role', 'jobs')} in {parsed_query.get('location', 'global')}", "num_pages": 1, "date_posted": "all"}
+        params = {k: v for k, v in [param.split('=') for param in jsearch_query.split('&')] if v}
         logger.info(f"JSearch request params: {params}")
         jsearch_response = requests.get(jsearch_url, headers=headers, params=params)
         jsearch_response.raise_for_status()
