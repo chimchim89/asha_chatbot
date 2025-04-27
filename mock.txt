@@ -1,80 +1,26 @@
-from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse
-from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
-import asyncio  # Import asyncio for adding delay
+"input": "find ml jobs in pune"
+"output:
+"AI-ML Engineer at Left Right Mind | Pune, IN | Check details | Apply
+Pune || AI ML - Technical Lead IRC260159 at Hitachi Careers | Pune, IN | Check details | Apply
+Intern- Machine Learning (Gen AI) at Seagate Technology | Pune, IN | Check details | Apply
+Data Scientist -AI ML at Virtusa | Pune, IN | Check details | Apply
+AI Developer (Fresher) JBU at Hitachi Careers | Pune, IN | Check details | Apply
+AI/ML Lead at Emerson | Pune, IN | Check details | Apply
+Senior GenAI Engineer at micro1 | Pune, IN | Check details | Apply
+Python AI/ML Developer Job in Pune, India at Virtusa | Pune, IN | Check details | Apply
+Machine Learning Internship in Pune at Vizuara | Pune, IN | Check details | Apply
+Lead AI Engineer - Machine Learning at ZS | Pune, IN | Check details | Apply"
 
-app = FastAPI(title="ASHA AI Chatbot")
 
-# Add CORS middleware to handle preflight OPTIONS requests
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
 
-class ChatRequest(BaseModel):
-    message: str
 
-@app.get("/", response_class=HTMLResponse)
-async def root(request: Request):
-    with open("templates/index.html", "r") as f:
-        return HTMLResponse(content=f.read())
 
-@app.post("/chat")
-async def chat(request: ChatRequest):
-    # Add a 2-3 second delay to simulate LLM processing
-    await asyncio.sleep(2.5)  # 2.5 seconds delay
 
-    message = request.message.strip()
 
-    # Hardcoded input-output pairs
-    if message == "find ml jobs in pune":
-        # List of job strings
-        job_strings = [
-            "AI-ML Engineer at Left Right Mind | Pune, IN | Check details | Apply",
-            "Pune || AI ML - Technical Lead IRC260159 at Hitachi Careers | Pune, IN | Check details | Apply",
-            "Intern- Machine Learning (Gen AI) at Seagate Technology | Pune, IN | Check details | Apply",
-            "Data Scientist -AI ML at Virtusa | Pune, IN | Check details | Apply",
-            "AI Developer (Fresher) JBU at Hitachi Careers | Pune, IN | Check details | Apply",
-            "AI/ML Lead at Emerson | Pune, IN | Check details | Apply",
-            "Senior GenAI Engineer at micro1 | Pune, IN | Check details | Apply",
-            "Python AI/ML Developer Job in Pune, India at Virtusa | Pune, IN | Check details | Apply",
-            "Machine Learning Internship in Pune at Vizuara | Pune, IN | Check details | Apply",
-            "Lead AI Engineer - Machine Learning at ZS | Pune, IN | Check details | Apply"
-        ]
 
-        # Parse each job string into a structured object
-        jobs = []
-        for job in job_strings:
-            # Split the string by " | " to separate the parts
-            parts = job.split(" | ")
-            # The first part is "<job_title> at <employer_name>"
-            title_and_employer = parts[0].split(" at ")
-            job_title = title_and_employer[0].strip()
-            employer_name = title_and_employer[1].strip() if len(title_and_employer) > 1 else "Unknown"
-            # The second part is "<city>, <state>"
-            location = parts[1].split(", ")
-            job_city = location[0].strip()
-            job_state = location[1].strip() if len(location) > 1 else "Unknown"
-            # We don’t have apply links for the demo, so set to null
-            job_apply_link = None
-
-            # Create the job object
-            jobs.append({
-                "job_title": job_title,
-                "employer_name": employer_name,
-                "job_city": job_city,
-                "job_state": job_state,
-                "job_apply_link": job_apply_link
-            })
-
-        return {"jobs": jobs}
-
-    elif message == "how to to restart your career as a woman after marriage":
-        output = """Restarting your career after marriage — especially as a woman — can feel overwhelming, but it's very doable with the right steps.
+"input": "how to to restart your career as a woman after marriage"
+"output":
+"Restarting your career after marriage — especially as a woman — can feel overwhelming, but it's very doable with the right steps.
 Here’s a clear path you can follow:
 
 1. Reflect on What You Want Now
@@ -129,11 +75,12 @@ Imposter syndrome is very common when restarting.
 Remember: You’re not starting from scratch; you're starting from experience.
 
 Would you like me to also suggest a few career ideas depending on your background and current interests? 🌟
-(Example: remote jobs, creative fields, high-paying jobs, flexible ones, etc.)"""
-        return {"guidance": output}
+(Example: remote jobs, creative fields, high-paying jobs, flexible ones, etc.)"
 
-    elif message == "what are upcoming events on herkeys website":
-        output = """# Featured Events from HerKey
+
+"input": "what are upcoming events on herkeys website"
+"output":
+"# Featured Events from HerKey
 
 ## Advance Your Career with a Premier Executive MBA from Great Lakes
 - **Type**: Featured
@@ -151,11 +98,11 @@ Would you like me to also suggest a few career ideas depending on your backgroun
 - **Type**: Featured
 - **Date**: 21st Apr, 2025 to 20th May, 2025 6:00pm to 11:00pm
 - **Description**: Career Development
-- **Link**: [https://events.herkey.com/events/skillreboot-program-restart-your-career-journey/1663](https://events.herkey.com/events/skillreboot-program-restart-your-career-journey/1663)"""
-        return {"guidance": output}
+- **Link**: [https://events.herkey.com/events/skillreboot-program-restart-your-career-journey/1663](https://events.herkey.com/events/skillreboot-program-restart-your-career-journey/1663)
 
-    elif message == "search over the internet to find tech meetups in pune":
-        output = """Here are some upcoming tech meetups and conferences in Pune that you might find interesting:
+
+input: search over the internet to find tech meetups in pune
+output: Here are some upcoming tech meetups and conferences in Pune that you might find interesting:
 
 ---
 
@@ -225,12 +172,11 @@ Would you like me to also suggest a few career ideas depending on your backgroun
 
 For a broader list of tech events, you can explore platforms like [Meetup](https://www.meetup.com/find/in--pune/technology/), [Eventbrite](https://www.eventbrite.com/d/india--pune/tech/), and [Townscript](https://www.townscript.com/in/pune/tech). ([Technology Events near Pune, IN - Meetup](https://www.meetup.com/find/in--pune/technology/?utm_source=chatgpt.com))
 
-Let me know if you need more details on any specific event or assistance with registrations! """
-        return {"guidance": output}
+Let me know if you need more details on any specific event or assistance with registrations! "
 
-    else:
-        return {"guidance": "Sorry, I can only handle specific predefined queries for this demo. Try 'find ml jobs in pune' or 'how to restart your career as a woman after marriage'."}
 
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+
+
+
+
+
